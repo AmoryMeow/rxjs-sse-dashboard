@@ -2,7 +2,7 @@ import { Observable } from "rxjs";
 
 const SSE_URL = "https://sse.dev/test";
 
-export function createSseEventStream(): Observable<MessageEvent> {
+export const createSseEventStream = (): Observable<MessageEvent> => {
   return new Observable<MessageEvent>((subscriber) => {
     const source = new EventSource(SSE_URL);
 
@@ -18,4 +18,4 @@ export function createSseEventStream(): Observable<MessageEvent> {
       source.close();
     };
   });
-}
+};

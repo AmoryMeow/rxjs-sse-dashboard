@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Observable } from "rxjs";
 
-export function useObservable<T>(observable$: Observable<T>, initial: T): T {
+export const useObservable = <T>(observable$: Observable<T>, initial: T): T => {
   const [value, setValue] = useState<T>(initial);
 
   useEffect(() => {
@@ -16,4 +16,4 @@ export function useObservable<T>(observable$: Observable<T>, initial: T): T {
   }, [observable$]);
 
   return value;
-}
+};
