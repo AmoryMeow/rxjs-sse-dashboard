@@ -1,4 +1,5 @@
-import { map } from "rxjs/operators";
+import { map, scan } from "rxjs/operators";
+import type { Observable } from "rxjs";
 
 import { createSseEventStream } from "./sseStream";
 import type { EventItem } from "../types";
@@ -14,3 +15,11 @@ export const events$ = raw$.pipe(
     })
   )
 );
+
+export const createLastEvents$ = (limit = 30): Observable<EventItem[]> => {
+  return events$.pipe(
+    scan<EventItem, EventItem[]>((acc, value) => {
+      return [value, ...acc].slice(0, limit);
+    }, [])
+  );
+};

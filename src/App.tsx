@@ -1,22 +1,23 @@
-import { events$ } from "./services";
+import { useMemo } from "react";
+import { createLastEvents$ } from "./services";
 import { useObservable } from "./hooks";
 
 function App() {
-  const lastEvent = useObservable(events$, null);
+  const lastEvents$ = useMemo(() => createLastEvents$(), []);
+  const lastEvents = useObservable(lastEvents$, []);
 
   return (
     <div style={{ padding: 16 }}>
       <h1>RxJS SSE Demo</h1>
-      {lastEvent ? (
-        <div>
-          <p>
-            Last event at: {new Date(lastEvent.receivedAt).toLocaleTimeString()}
-          </p>
-          <pre>{lastEvent.raw}</pre>
-        </div>
-      ) : (
-        <p>Waiting for events...</p>
-      )}
+      <h2>Last events ({lastEvents.length})</h2>
+      <ul>
+        {lastEvents.map((event) => (
+          <li key={event.id}>
+            <strong>{new Date(event.receivedAt).toLocaleTimeString()}:</strong>
+            <code>{event.raw}</code>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
