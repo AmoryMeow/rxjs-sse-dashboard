@@ -1,20 +1,22 @@
 import { useMemo } from "react";
-import { createLastEvents$ } from "./services";
+
+import { createLastMetrics$ } from "./services";
 import { useObservable } from "./hooks";
 
 function App() {
-  const lastEvents$ = useMemo(() => createLastEvents$(), []);
-  const lastEvents = useObservable(lastEvents$, []);
+  const lastMetrics$ = useMemo(() => createLastMetrics$(), []);
+  const lastMetrics = useObservable(lastMetrics$, []);
 
   return (
-    <div style={{ padding: 16 }}>
+    <div>
       <h1>RxJS SSE Demo</h1>
-      <h2>Last events ({lastEvents.length})</h2>
+      <h2>Last events ({lastMetrics.length})</h2>
       <ul>
-        {lastEvents.map((event) => (
-          <li key={event.id}>
-            <strong>{new Date(event.receivedAt).toLocaleTimeString()}:</strong>
-            <code>{event.raw}</code>
+        {lastMetrics.map((metric) => (
+          <li key={metric.id}>
+            {new Date(metric.receivedAt).toLocaleTimeString()} -{" "}
+            {metric.service}:{metric.env} - {metric.metric} -{" "}
+            {metric.value.toFixed(2)} {metric.unit} - {metric.status}
           </li>
         ))}
       </ul>
