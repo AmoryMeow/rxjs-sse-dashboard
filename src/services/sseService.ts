@@ -1,5 +1,5 @@
-import { map, mergeMap, scan, shareReplay } from "rxjs/operators";
-import { from, type Observable } from "rxjs";
+import { filter, map, mergeMap, scan, shareReplay } from "rxjs/operators";
+import { BehaviorSubject, combineLatest, from, type Observable } from "rxjs";
 
 import { createSseEventStream } from "./sseStream";
 import type {
@@ -7,6 +7,7 @@ import type {
   MetricConfig,
   MetricStatus,
   MetricBatchConfig,
+  MetricFilters,
 } from "../types";
 
 const raw$ = createSseEventStream();
@@ -84,8 +85,29 @@ export const metrics$: Observable<MetricEvent> = baseMetric$.pipe(
   shareReplay({ bufferSize: 1, refCount: true })
 );
 
+const filters$ = new BehaviorSubject<MetricFilters>({
+  service: "all",
+  env: "all",
+});
+
+const filteredMetrics$ = combineLatest([metrics$, filters$]).pipe(
+  filter(([metric, filters]) => {
+    const serviceMatch =
+      filters.service === "all" || filters.service === metric.service;
+    const envMatch = filters.env === "all" || filters.env === metric.env;
+
+    return serviceMatch && envMatch;
+  }),
+  map(([metric]) => metric),
+  shareReplay({ bufferSize: 1, refCount: true })
+);
+
+export const setFilters = (next: MetricFilters) => {
+  filters$.next(next);
+};
+
 export const createLastMetrics$ = (limit = 30): Observable<MetricEvent[]> => {
-  return metrics$.pipe(
+  return filteredMetrics$.pipe(
     scan<MetricEvent, MetricEvent[]>((acc, value) => {
       return [value, ...acc].slice(0, limit);
     }, [])

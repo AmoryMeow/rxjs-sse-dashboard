@@ -1,6 +1,9 @@
+export type Services = "payments" | "orders" | "auth";
+export type Envs = "prod" | "test";
+
 export interface MetricConfig {
-  service: string;
-  env: string;
+  service: Services;
+  env: Envs;
   metric: string;
   unit: string;
   baseValue: number;
@@ -19,4 +22,9 @@ export interface MetricEvent extends MetricConfig {
 export interface MetricBatchConfig {
   type: "metric_batch";
   items: MetricConfig[];
+}
+
+export interface MetricFilters {
+  service: Services | "all";
+  env: Envs | "all";
 }
