@@ -14,13 +14,15 @@ function App() {
     useState<MetricFilters>(initialFilters);
 
   const lastMetrics$ = useMemo(() => createLastMetrics$(), []);
-  const lastMetrics = useObservable(lastMetrics$, []);
+  const lastMetricsMap = useObservable(lastMetrics$, new Map());
 
   const handleFilterChange = (data: Partial<MetricFilters>) => {
     const newFilters = { ...filtersState, ...data };
     setFiltersState(newFilters);
     setFilters(newFilters);
   };
+
+  const lastMetrics = Array.from(lastMetricsMap.values()).flat();
 
   return (
     <div>

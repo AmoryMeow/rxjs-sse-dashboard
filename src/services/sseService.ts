@@ -106,10 +106,23 @@ export const setFilters = (next: MetricFilters) => {
   filters$.next(next);
 };
 
-export const createLastMetrics$ = (limit = 30): Observable<MetricEvent[]> => {
+export const createLastMetrics$ = (
+  timeWindowMs = 5 * 60 * 1000
+): Observable<Map<string, MetricEvent[]>> => {
   return filteredMetrics$.pipe(
-    scan<MetricEvent, MetricEvent[]>((acc, value) => {
-      return [value, ...acc].slice(0, limit);
-    }, [])
+    scan<MetricEvent, Map<string, MetricEvent[]>>((acc, value) => {
+      const key = getMetricKey(value);
+      const history = acc.get(key) || [];
+      const timeThreshold = Date.now() - timeWindowMs;
+
+      const filteredHistory = history.filter(
+        (event) => event.receivedAt >= timeThreshold
+      );
+      const newHistory = [value, ...filteredHistory];
+
+      const newMap = new Map(acc);
+      newMap.set(key, newHistory);
+      return newMap;
+    }, new Map())
   );
 };
