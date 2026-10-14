@@ -1,106 +1,121 @@
-import { filter, map, mergeMap, scan, shareReplay } from "rxjs/operators";
-import { BehaviorSubject, combineLatest, from, type Observable } from "rxjs";
+import {
+  bufferTime,
+  filter,
+  map,
+  scan,
+  shareReplay,
+} from "rxjs/operators";
+import { BehaviorSubject, combineLatest, type Observable } from "rxjs";
 
 import { createSseEventStream } from "./sseStream";
 import type {
+  Actor,
   MetricEvent,
-  MetricConfig,
-  MetricStatus,
-  MetricBatchConfig,
   MetricFilters,
+  MetricStatus,
+  Project,
 } from "../types";
+
+const SAMPLE_WINDOW_MS = 5_000;
+const MAX_POINTS_PER_SERIES = 60;
+const PROJECTS: Project[] = ["wikipedia", "wikidata", "commons"];
+const ACTORS: Actor[] = ["human", "bot"];
+
+interface WikimediaRecentChange {
+  bot?: boolean;
+  meta?: {
+    domain?: string;
+  };
+}
 
 const raw$ = createSseEventStream();
 
-const baseMetric$: Observable<MetricConfig> = raw$.pipe(
-  map((event) => JSON.parse(event.data) as MetricBatchConfig),
+const parseRecentChange = (data: string): WikimediaRecentChange | null => {
+  try {
+    const parsed: unknown = JSON.parse(data);
 
-  mergeMap((data) => {
-    const configs: MetricConfig[] = data.items.map((item) => ({
-      service: item.service ?? "unknown",
-      env: item.env ?? "prod",
-      metric: item.metric ?? "unknown_metric",
-      unit: item.unit ?? "count",
-      baseValue: item.baseValue ?? 0.5,
-      warningThreshold: item.warningThreshold ?? 1,
-      criticalThreshold: item.criticalThreshold ?? 3,
-    }));
+    if (typeof parsed !== "object" || parsed === null) return null;
 
-    return from(configs);
-  })
-);
-
-const getMetricKey = (config: MetricConfig): string => {
-  return `${config.service}:${config.env}:${config.metric}`;
+    return parsed as WikimediaRecentChange;
+  } catch {
+    return null;
+  }
 };
 
-export const metrics$: Observable<MetricEvent> = baseMetric$.pipe(
-  scan<MetricConfig, { state: Map<string, MetricEvent>; event: MetricEvent }>(
-    (acc, config) => {
-      const metricKey = getMetricKey(config);
-      const prevEvent = acc.state.get(metricKey);
-      const prevValue = prevEvent?.value ?? config.baseValue;
+const getProject = (domain: string | undefined): Project | null => {
+  if (domain === "www.wikidata.org") return "wikidata";
+  if (domain === "commons.wikimedia.org") return "commons";
+  if (domain?.endsWith(".wikipedia.org")) return "wikipedia";
 
-      // Emulate different metric values from backend:
-      // - Mean reversion: values tend to return to baseValue
-      // - Random fluctuations: simulate normal metric variations
-      // - Occasional spikes: simulate sudden load changes or issues
-      const meanReversion = (config.baseValue - prevValue) * 0.05;
+  return null;
+};
 
-      const randomChange =
-        (Math.random() + Math.random() + Math.random() - 1.5) * 0.3;
+const getStatus = (value: number): MetricStatus => {
+  if (value >= 20) return "critical";
+  if (value >= 10) return "warning";
+  return "ok";
+};
 
-      let spike = 0;
-      if (Math.random() < 0.15) {
-        const spikeMagnitude = Math.random() * 2;
-        spike = Math.random() < 0.5 ? spikeMagnitude : -spikeMagnitude * 0.3;
-      }
+const getMetricKey = (metric: MetricEvent): string => {
+  return `${metric.project}:${metric.actor}:${metric.metric}`;
+};
 
-      let value = prevValue + meanReversion + randomChange + spike;
-      if (value < 0) value = 0;
-
-      let status: MetricStatus = "ok";
-      if (value >= config.criticalThreshold) {
-        status = "critical";
-      } else if (value >= config.warningThreshold) {
-        status = "warning";
-      }
-
-      const event: MetricEvent = {
-        ...config,
-        id: crypto.randomUUID(),
-        value,
-        status,
-        receivedAt: Date.now(),
-      };
-
-      const newState = new Map(acc.state);
-      newState.set(metricKey, event);
-
-      return { state: newState, event };
-    },
-    { state: new Map(), event: {} as MetricEvent }
+const metricBatches$: Observable<MetricEvent[]> = raw$.pipe(
+  map((event) => parseRecentChange(event.data)),
+  filter((event): event is WikimediaRecentChange => event !== null),
+  map((event) => ({
+    project: getProject(event.meta?.domain),
+    actor: event.bot ? ("bot" as const) : ("human" as const),
+  })),
+  filter(
+    (event): event is { project: Project; actor: Actor } =>
+      event.project !== null
   ),
-  map((acc) => acc.event),
+  bufferTime(SAMPLE_WINDOW_MS),
+  filter((events) => events.length > 0),
+  map((events) => {
+    const receivedAt = Date.now();
+    const counts = new Map<string, number>();
+
+    events.forEach(({ project, actor }) => {
+      const key = `${project}:${actor}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+
+    return PROJECTS.flatMap((project) =>
+      ACTORS.map((actor): MetricEvent => {
+        const eventCount = counts.get(`${project}:${actor}`) ?? 0;
+        const value = eventCount / (SAMPLE_WINDOW_MS / 1_000);
+
+        return {
+          id: crypto.randomUUID(),
+          project,
+          actor,
+          metric: "changes_per_second",
+          unit: "changes/s",
+          value,
+          status: getStatus(value),
+          receivedAt,
+        };
+      })
+    );
+  }),
   shareReplay({ bufferSize: 1, refCount: true })
 );
 
 const filters$ = new BehaviorSubject<MetricFilters>({
-  service: "all",
-  env: "all",
+  project: "all",
+  actor: "all",
 });
 
-const filteredMetrics$ = combineLatest([metrics$, filters$]).pipe(
-  filter(([metric, filters]) => {
-    const serviceMatch =
-      filters.service === "all" || filters.service === metric.service;
-    const envMatch = filters.env === "all" || filters.env === metric.env;
+const matchesFilters = (metric: MetricEvent, filters: MetricFilters) => {
+  const projectMatch =
+    filters.project === "all" || filters.project === metric.project;
+  const actorMatch =
+    filters.actor === "all" || filters.actor === metric.actor;
 
-    return serviceMatch && envMatch;
-  }),
-  map(([metric]) => metric),
-  shareReplay({ bufferSize: 1, refCount: true })
-);
+  return projectMatch && actorMatch;
+};
 
 export const setFilters = (next: MetricFilters) => {
   filters$.next(next);
@@ -109,20 +124,44 @@ export const setFilters = (next: MetricFilters) => {
 export const createLastMetrics$ = (
   timeWindowMs = 5 * 60 * 1000
 ): Observable<Map<string, MetricEvent[]>> => {
-  return filteredMetrics$.pipe(
-    scan<MetricEvent, Map<string, MetricEvent[]>>((acc, value) => {
-      const key = getMetricKey(value);
-      const history = acc.get(key) || [];
+  const lastMetricsByKey$ = metricBatches$.pipe(
+    scan<MetricEvent[], Map<string, MetricEvent[]>>((acc, batch) => {
       const timeThreshold = Date.now() - timeWindowMs;
+      const newMap = new Map<string, MetricEvent[]>();
 
-      const filteredHistory = history.filter(
-        (event) => event.receivedAt >= timeThreshold
-      );
-      const newHistory = [value, ...filteredHistory];
+      acc.forEach((history, key) => {
+        const recentHistory = history
+          .filter((event) => event.receivedAt >= timeThreshold)
+          .slice(0, MAX_POINTS_PER_SERIES - 1);
 
-      const newMap = new Map(acc);
-      newMap.set(key, newHistory);
+        if (recentHistory.length > 0) {
+          newMap.set(key, recentHistory);
+        }
+      });
+
+      batch.forEach((value) => {
+        const key = getMetricKey(value);
+        const history = newMap.get(key) ?? [];
+        newMap.set(key, [value, ...history].slice(0, MAX_POINTS_PER_SERIES));
+      });
+
       return newMap;
     }, new Map())
+  );
+
+  return combineLatest([lastMetricsByKey$, filters$]).pipe(
+    map(([lastMetricsByKey, filters]) => {
+      const visibleMetrics = new Map<string, MetricEvent[]>();
+
+      lastMetricsByKey.forEach((history, key) => {
+        const latestMetric = history[0];
+
+        if (latestMetric && matchesFilters(latestMetric, filters)) {
+          visibleMetrics.set(key, history);
+        }
+      });
+
+      return visibleMetrics;
+    })
   );
 };

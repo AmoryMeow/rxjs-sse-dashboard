@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 
 import { createLastMetrics$, setFilters } from "./services";
 import { useObservable } from "./hooks";
-import type { Envs, MetricFilters, Services } from "./types";
+import type { Actor, MetricFilters, Project } from "./types";
+import { MetricChart } from "./chart";
 
 const initialFilters: MetricFilters = {
-  service: "all",
-  env: "all",
+  project: "all",
+  actor: "all",
 };
 
 function App() {
@@ -22,43 +23,42 @@ function App() {
     setFilters(newFilters);
   };
 
-  const lastMetrics = Array.from(lastMetricsMap.values()).flat();
-
   return (
     <div>
-      <h1>RxJS SSE Demo</h1>
+      <h1>Wikimedia Live Activity</h1>
+      <p>Real-time changes from Wikimedia EventStreams</p>
       <section>
-        <select
-          value={filtersState.service}
-          onChange={(e) =>
-            handleFilterChange({ service: e.target.value as Services })
-          }
-        >
-          <option value="all">All</option>
-          <option value="payments">Payments</option>
-          <option value="orders">Orders</option>
-          <option value="auth">Auth</option>
-        </select>
-        <select
-          value={filtersState.env}
-          onChange={(e) => handleFilterChange({ env: e.target.value as Envs })}
-        >
-          <option value="all">All</option>
-          <option value="prod">Prod</option>
-          <option value="test">Test</option>
-        </select>
+        <label>
+          Project{" "}
+          <select
+            value={filtersState.project}
+            onChange={(e) =>
+              handleFilterChange({ project: e.target.value as Project })
+            }
+          >
+            <option value="all">All</option>
+            <option value="wikipedia">Wikipedia</option>
+            <option value="wikidata">Wikidata</option>
+            <option value="commons">Commons</option>
+          </select>
+        </label>
+        <label>
+          Editor{" "}
+          <select
+            value={filtersState.actor}
+            onChange={(e) =>
+              handleFilterChange({ actor: e.target.value as Actor })
+            }
+          >
+            <option value="all">All</option>
+            <option value="human">Human</option>
+            <option value="bot">Bot</option>
+          </select>
+        </label>
       </section>
       <section>
-        <h2>Last events ({lastMetrics.length})</h2>
-        <ul>
-          {lastMetrics.map((metric) => (
-            <li key={metric.id}>
-              {new Date(metric.receivedAt).toLocaleTimeString()} -{" "}
-              {metric.service}:{metric.env} - {metric.metric} -{" "}
-              {metric.value.toFixed(2)} {metric.unit} - {metric.status}
-            </li>
-          ))}
-        </ul>
+        <h2>Activity ({lastMetricsMap.size} series)</h2>
+        <MetricChart title="Changes per second" data={lastMetricsMap} />
       </section>
     </div>
   );

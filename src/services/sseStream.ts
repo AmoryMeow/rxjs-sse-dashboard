@@ -1,54 +1,42 @@
 import { Observable } from "rxjs";
 
-const buildSseUrl = () => {
-  const json = {
-    type: "metric_batch",
-    items: [
-      {
-        type: "metric",
-        service: "payments",
-        env: "prod",
-        metric: "error_rate_5m",
-        unit: "percent",
-        baseValue: 0.5,
-        warningThreshold: 1,
-        criticalThreshold: 3,
-      },
-      {
-        service: "orders",
-        env: "prod",
-        metric: "requests_per_second",
-        unit: "req/s",
-        baseValue: 100,
-        warningThreshold: 500,
-        criticalThreshold: 1000,
-      },
-    ],
-  };
-
-  const params = new URLSearchParams({
-    interval: "5",
-    jsonobj: JSON.stringify(json),
-  });
-
-  return `https://sse.dev/test?${params.toString()}`;
-};
+const DEFAULT_SSE_URL =
+  "https://stream.wikimedia.org/v2/stream/recentchange";
 
 export const createSseEventStream = (): Observable<MessageEvent> => {
   return new Observable<MessageEvent>((subscriber) => {
-    const url = buildSseUrl();
-    const source = new EventSource(url);
+    const url = import.meta.env.VITE_SSE_URL || DEFAULT_SSE_URL;
+    let source: EventSource | null = null;
 
-    source.onmessage = (event) => {
-      subscriber.next(event);
+    const closeSource = () => {
+      source?.close();
+      source = null;
     };
 
-    source.onerror = (error) => {
-      subscriber.error(error);
+    const openSource = () => {
+      if (source || subscriber.closed) return;
+
+      source = new EventSource(url);
+      source.onmessage = (event) => subscriber.next(event);
+      source.onerror = (error) => {
+        console.warn("SSE connection interrupted; reconnecting:", error);
+      };
     };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        closeSource();
+      } else {
+        openSource();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    handleVisibilityChange();
 
     return () => {
-      source.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      closeSource();
     };
   });
 };
