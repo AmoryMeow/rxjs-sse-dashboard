@@ -127,5 +127,4 @@ Wikimedia's recent-change stream can produce many events per second. The dashboa
 - Summary cards for total activity, human edits, and bot edits
 - Configurable time ranges and activity thresholds
 - Recent-event and activity-spike panels
-- Continuous integration for test, lint, and build checks
 - Public deployment with screenshots and a live-demo link
