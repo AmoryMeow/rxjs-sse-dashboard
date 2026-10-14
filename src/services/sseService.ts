@@ -36,7 +36,20 @@ const parseRecentChange = (data: string): WikimediaRecentChange | null => {
 
     if (typeof parsed !== "object" || parsed === null) return null;
 
-    return parsed as WikimediaRecentChange;
+    const record = parsed as Record<string, unknown>;
+    const meta = record.meta;
+
+    if (typeof meta !== "object" || meta === null) return null;
+
+    const domain = (meta as Record<string, unknown>).domain;
+
+    if (typeof domain !== "string") return null;
+    if (record.bot !== undefined && typeof record.bot !== "boolean") return null;
+
+    return {
+      bot: record.bot === true,
+      meta: { domain },
+    };
   } catch {
     return null;
   }
